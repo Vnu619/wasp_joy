@@ -1,0 +1,24 @@
+#goal definition
+bool active
+float32 distance
+int32 liftup
+int32 liftdown
+#float32 startpoint_x
+#float32 startpoint_y
+#float32 startpoint_z
+#float32 startpoint_w
+#float32 endpoint_x
+#float32 endpoint_y
+#float32 endpoint_z
+#float32 endpoint_w
+---
+#result definition
+int32 liftup_
+int32 liftdown_
+int32 final
+---
+#feedback
+float32 distance
+int32 liftup
+int32 liftdown
+

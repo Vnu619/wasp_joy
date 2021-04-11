@@ -1,0 +1,9 @@
+#goal definition
+bool align
+---
+#result definition
+bool success
+---
+#feedback
+float32 align_distance
+
