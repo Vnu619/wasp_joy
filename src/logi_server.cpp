@@ -25,10 +25,6 @@ float set;
 int timer_flag=0;
 ros::Time current_time, last_time;
 
-
-//void pub_cmd_logi();
-void TimerCallback(bool flag);
-//void RosTimerCb();
 class LogiAction
 {
 protected:
@@ -45,15 +41,11 @@ protected:
 	int goal_;
 	int progress=1;
 	int liftup , liftdown, state=0, odom_flag=0;
-	bool linear_dist =false;
+	bool linear_dist =false, trolley_undock= false;
 
-
-	//ros::Timer timer = nh.createTimer(ros::Duration(5), TimerCallback);
-
-	//bool success =false;
 
 public:
-	double odom_posex, odom_orientationz;
+	double odom_posex, odom_orientationz, odom_posey;
 	LogiAction(std::string name) :lg(nh,name, boost::bind(&LogiAction::execteCB, this, _1), false), action_name(name)
 	{
 		//lg.registerGoalCallback(boost::bind(&LogiAction::goalCB, this));
@@ -83,55 +75,7 @@ public:
 	
 
 };
-/*
- void RosTimerCb()
- {
- 	//ros::AsyncSpinner spinner(4);
- 	ROS_INFO("ros_timer_started");
- 	
-	
-	begin = ros::Time::now().toSec();
-	std::cout<<"**************timer_began:************"<<begin;
-	//ros::spin();
- 	//return output;
-	//spinner.start();
- }
-*/
- void TimerCallback(bool flag)
- {
- 	ROS_INFO("Timer Callback triggered");
- 	if (flag)
- 	{
- 		
- 		//logistics_command.liftup = 1.0;
- 		std::cout<<"delay = "<<output;
- 		ros::Duration(15).sleep();
 
-		output =true;
-
- 	}
- 	else if (!flag)
- 	{
-
-		output =false;
- 	}
- 	 m_ReturnValue = output;
- 	//return output;
-
- }
- /*
-void pub_cmd_logi()
-{
-	ros::NodeHandlePtr nh = boost::make_shared<ros::NodeHandle>();
-	teleop_cmd2 = nh.advertise<wasp_joy::logistics>("/cmd_logi", 10);
-	ros::Rate loop(5);
-	while (ros::ok())
-	{
-		teleop_cmd2.publish(logistics_command);
-		loop.sleep();
-	}	
-}
-*/
 void LogiAction::preemptCB()
   {
     ROS_WARN("%s: Preempted", action_name.c_str());
@@ -164,37 +108,40 @@ void LogiAction::execteCB(const wasp_joy::LogisticsGoalConstPtr &goal)
 		{
 	       result.final = progress;
 	       lg.setAborted(result,"I failed !");
+	       command_velocity.linear.x = 0.0;
+	       logistics_command.liftup = 0.0;
+	       command_velocity.angular.z = 0.0;
+	       teleop_cmd.publish(command_velocity);
+	       teleop_cmd2.publish(logistics_command);
 	       ROS_INFO("%s Shutting down",action_name.c_str());
 	       break;
 
 		}
 		if(!lg.isActive() || lg.isPreemptRequested())
 		{
+		   command_velocity.linear.x = 0.0;
+	       logistics_command.liftup = 0.0;
+	       command_velocity.angular.z = 0.0;
+	       teleop_cmd.publish(command_velocity);
+	       teleop_cmd2.publish(logistics_command);
        		return;
-     		}
+     	}
      	if (goal->liftup==1 && goal-> liftdown == 0)
      	{
-     		
-     		//ros::Duration(2).sleep();
-
- 			
+	
  			if (odom_flag==0)
      		{
      			ROS_INFO("odom_start_pose= %f", odom_start_pose);
      			odom_start_pose=this->odom_posex;
-
      			odom_flag=1;
-     			
-
      		}
 
  			//ROS_INFO("Duration in seconds: %lf", begin.toSec());
- 			ROS_INFO("trolley begine= %lf", odom_start_pose);
- 			ROS_INFO("trolley now= %lf", this->odom_posex);
+ 			ROS_INFO("odom_start_pose= %lf", odom_start_pose);
+ 			ROS_INFO("current odom reading= %lf", this->odom_posex);
 			if (abs(this->odom_posex- odom_start_pose) > dist)
 			{
 				command_velocity.linear.x = 0.0;
-				//boost::thread TimerCallback(true);
 				
 				linear_dist =true;
 			}
@@ -246,46 +193,41 @@ void LogiAction::execteCB(const wasp_joy::LogisticsGoalConstPtr &goal)
      	if (goal->liftup==0 && goal->liftdown == 1)
      	{
      		ROS_INFO("trolley liftdown");
-     		if (odom_flag==0)
-     		{
-     			ROS_INFO("odom_start_pose= %f", odom_start_pose);
-     			odom_start_pose=this->odom_posex;
-
-     			odom_flag=1;
-     			
-
-     		}
-
- 			//ROS_INFO("Duration in seconds: %lf", begin.toSec());
- 			//ROS_INFO("trolley begine= %lf", odom_start_pose);
- 			//ROS_INFO("trolley now= %lf", this->odom_posex);
-			if (abs(this->odom_posex- odom_start_pose) > 0.5)
+     		if(timer_flag == 0 || odom_flag ==0)
 			{
-				command_velocity.linear.x = 0.0;
-				//boost::thread thrd(TimerCallback(true));
-				boost::thread thrd(TimerCallback, true);
-				thrd.join();
-				time_set = m_ReturnValue;
-				if (!time_set)
-				{
-					logistics_command.liftdown = 1;
-					success =false;
-				}
-				else if (time_set)
-				{
-					logistics_command.liftdown = 0;
-					success =true;
-				}
+				last_time = ros::Time::now();
+				ROS_INFO("odom_start_pose= %f", odom_start_pose);
+     			odom_start_pose=this->odom_posey;
+				timer_flag = 1;
+				odom_flag = 1;
+			}
 
-			//logistics_command.liftup = 1;
+			std::cout<<"\nlast_time:"<<last_time.toSec();
+
+			if(abs(ros::Time::now().toSec()-last_time.toSec())<10)
+			{
+				logistics_command.liftdown = 1.0;
+				std::cout<<"\ntimerstarted for 10 seconds";
+			}
+			else if(abs(ros::Time::now().toSec()-last_time.toSec())>=10)
+			{
+				logistics_command.liftdown = 0.0;
+				std::cout<<"\ntrolley lifting down finished 10 seconds";
+				trolley_undock =true;
+				
+			}
+			else if(trolley_undock && (abs(this->odom_posey- odom_start_pose) > dist))
+			{
+				command_velocity.linear.y = 0.0;
+				success =true;
 				break;
 			}
-			else if(abs(this->odom_posex- odom_start_pose) <= 0.5)
+			else if(trolley_undock &&(abs(this->odom_posey- odom_start_pose) <= dist))
 			{
-				command_velocity.linear.x = 0.15;
-				logistics_command.liftup = 0;
-
+				command_velocity.linear.y = 0.015;
+				logistics_command.liftdown = 0;
 			}
+
      	}
      	else if (goal->liftup ==0 && goal->liftdown==0)
      	{
@@ -313,6 +255,7 @@ void LogiAction::execteCB(const wasp_joy::LogisticsGoalConstPtr &goal)
 			m_ReturnValue = false;
 			odom_flag = 0;
 			timer_flag = 0;
+			linear_dist =false;
 
 		}
 
@@ -320,6 +263,7 @@ void LogiAction::execteCB(const wasp_joy::LogisticsGoalConstPtr &goal)
 void LogiAction::OdomCallback(const nav_msgs::Odometry::ConstPtr& msg)
 {
 	this->odom_posex=msg->pose.pose.position.x;
+	this->odom_posey=msg->pose.pose.position.y;
 	
 	tf::Quaternion q(
         msg->pose.pose.orientation.x,
