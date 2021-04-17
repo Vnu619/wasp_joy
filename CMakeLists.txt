@@ -265,6 +265,13 @@ target_link_libraries(${PROJECT_NAME}_align_client
 #${PROJECT_NAME}
 )
 
+add_executable(${PROJECT_NAME}_params src/params_test.cpp)
+add_dependencies(${PROJECT_NAME}_params ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+target_link_libraries(${PROJECT_NAME}_params
+   ${catkin_LIBRARIES}
+#${PROJECT_NAME}
+)
+
 
 
 #############

@@ -5,6 +5,10 @@
 #include <geometry_msgs/Twist.h>
 #include <wasp_joy/logistics.h>
 #include "nav_msgs/Odometry.h"
+#include <ros/service.h>
+#include <dynamic_reconfigure/server.h>
+#include <dynamic_reconfigure/client.h>
+#include <laser_filters/PolygonFilterConfig.h>
 #include <math.h>  
 #include <cmath>
 #include <boost/thread.hpp>
@@ -12,8 +16,13 @@
 #include<thread>
 #include <tf/tf.h>
 
+dynamic_reconfigure::ReconfigureRequest srv_req, srv_req2;
+dynamic_reconfigure::ReconfigureResponse srv_resp;
+dynamic_reconfigure::StrParameter str_param , str_clear;
+dynamic_reconfigure::Config conf, conf_clear;
 sensor_msgs::LaserScan laser_msg;
-float dist=0,right_min=0,left_min=0,x_r,x_l,y_r,y_l, angle=1.5707;
+
+float dist=0,right_min=0,left_min=0,x_r,x_l,y_r,y_l, angle=1.5307;
 float pi =3.14;
 float odom_posex,odom_start_pose, odom_orientationz,odom_start_orientation;
 bool output,m_ReturnValue;
@@ -23,12 +32,20 @@ wasp_joy::logistics logistics_command;
 float begin;
 float set;
 int timer_flag=0;
+void dynCallBack(const laser_filters::PolygonFilterConfig &config);
 ros::Time current_time, last_time;
+dynamic_reconfigure::Client<laser_filters::PolygonFilterConfig> client("/laser_filter/polygon_filter", dynCallBack);
+
+std::string footprint_string = "[[-0.78, -0.38], [-0.78, 0.38], [0.78, 0.38], [0.78, -0.38]]";
+std::string footprint_normal = "[[-0.32, -0.28], [-0.32, 0.28], [0.32, 0.28], [0.32, -0.28]]";
+std::string footprint_laser = "[[-0.82, -0.42], [-0.82, 0.42], [0.82, 0.42], [0.82, -0.42]]";
 
 
-//void pub_cmd_logi();
-void TimerCallback(bool flag);
-//void RosTimerCb();
+void dynCallBack(const laser_filters::PolygonFilterConfig &config) {
+
+    ROS_INFO("Reconfigure Request_footprint: ");
+    return;
+}
 class LogiAction
 {
 protected:
@@ -41,19 +58,17 @@ protected:
 	geometry_msgs::Twist command_velocity;
 	ros::Subscriber sub_;
 	ros::Publisher  teleop_cmd, teleop_cmd2;
+
+
 	//geometry_msgs::Pose2D current_pose_;
 	int goal_;
 	int progress=1;
 	int liftup , liftdown, state=0, odom_flag=0;
-	bool linear_dist =false;
+	bool linear_dist =false, trolley_undock= false;
 
-
-	//ros::Timer timer = nh.createTimer(ros::Duration(5), TimerCallback);
-
-	//bool success =false;
 
 public:
-	double odom_posex, odom_orientationz;
+	double odom_posex, odom_orientationz, odom_posey;
 	LogiAction(std::string name) :lg(nh,name, boost::bind(&LogiAction::execteCB, this, _1), false), action_name(name)
 	{
 		//lg.registerGoalCallback(boost::bind(&LogiAction::goalCB, this));
@@ -69,6 +84,7 @@ public:
 	   	ros::Subscriber sub = nh.subscribe("/odom_ekf", 1000, &LogiAction::OdomCallback, this);
 	   	teleop_cmd = nh.advertise<geometry_msgs::Twist>("/cmd_vel", 10);
 	   	teleop_cmd2 = nh.advertise<wasp_joy::logistics>("/cmd_logi", 10);
+		
 	   	ros::spin();
 		//spinner.start();
 	}
@@ -83,55 +99,7 @@ public:
 	
 
 };
-/*
- void RosTimerCb()
- {
- 	//ros::AsyncSpinner spinner(4);
- 	ROS_INFO("ros_timer_started");
- 	
-	
-	begin = ros::Time::now().toSec();
-	std::cout<<"**************timer_began:************"<<begin;
-	//ros::spin();
- 	//return output;
-	//spinner.start();
- }
-*/
- void TimerCallback(bool flag)
- {
- 	ROS_INFO("Timer Callback triggered");
- 	if (flag)
- 	{
- 		
- 		//logistics_command.liftup = 1.0;
- 		std::cout<<"delay = "<<output;
- 		ros::Duration(15).sleep();
 
-		output =true;
-
- 	}
- 	else if (!flag)
- 	{
-
-		output =false;
- 	}
- 	 m_ReturnValue = output;
- 	//return output;
-
- }
- /*
-void pub_cmd_logi()
-{
-	ros::NodeHandlePtr nh = boost::make_shared<ros::NodeHandle>();
-	teleop_cmd2 = nh.advertise<wasp_joy::logistics>("/cmd_logi", 10);
-	ros::Rate loop(5);
-	while (ros::ok())
-	{
-		teleop_cmd2.publish(logistics_command);
-		loop.sleep();
-	}	
-}
-*/
 void LogiAction::preemptCB()
   {
     ROS_WARN("%s: Preempted", action_name.c_str());
@@ -164,37 +132,40 @@ void LogiAction::execteCB(const wasp_joy::LogisticsGoalConstPtr &goal)
 		{
 	       result.final = progress;
 	       lg.setAborted(result,"I failed !");
+	       command_velocity.linear.x = 0.0;
+	       logistics_command.liftup = 0.0;
+	       command_velocity.angular.z = 0.0;
+	       teleop_cmd.publish(command_velocity);
+	       teleop_cmd2.publish(logistics_command);
 	       ROS_INFO("%s Shutting down",action_name.c_str());
 	       break;
 
 		}
 		if(!lg.isActive() || lg.isPreemptRequested())
 		{
+		   command_velocity.linear.x = 0.0;
+	       logistics_command.liftup = 0.0;
+	       command_velocity.angular.z = 0.0;
+	       teleop_cmd.publish(command_velocity);
+	       teleop_cmd2.publish(logistics_command);
        		return;
-     		}
+     	}
      	if (goal->liftup==1 && goal-> liftdown == 0)
      	{
-     		
-     		//ros::Duration(2).sleep();
-
- 			
+	
  			if (odom_flag==0)
      		{
      			ROS_INFO("odom_start_pose= %f", odom_start_pose);
      			odom_start_pose=this->odom_posex;
-
      			odom_flag=1;
-     			
-
      		}
 
  			//ROS_INFO("Duration in seconds: %lf", begin.toSec());
- 			ROS_INFO("trolley begine= %lf", odom_start_pose);
- 			ROS_INFO("trolley now= %lf", this->odom_posex);
+ 			ROS_INFO("odom_start_pose= %lf", odom_start_pose);
+ 			ROS_INFO("current odom reading= %lf", this->odom_posex);
 			if (abs(this->odom_posex- odom_start_pose) > dist)
 			{
 				command_velocity.linear.x = 0.0;
-				//boost::thread TimerCallback(true);
 				
 				linear_dist =true;
 			}
@@ -210,16 +181,34 @@ void LogiAction::execteCB(const wasp_joy::LogisticsGoalConstPtr &goal)
 					timer_flag = 1;
 				}
 				std::cout<<"\nlast_time:"<<last_time.toSec();
-				if(abs(ros::Time::now().toSec()-last_time.toSec())<10)
+				if(abs(ros::Time::now().toSec()-last_time.toSec())<80)
 				{
 					logistics_command.liftup = 1.0;
-					std::cout<<"\ntimerstarted for 10 seconds";
+					std::cout<<"\ntimerstarted for 80 seconds";
 					success =false;
 				}
-				else if(abs(ros::Time::now().toSec()-last_time.toSec())>=10)
+				else if(abs(ros::Time::now().toSec()-last_time.toSec())>=80)
 				{
 					logistics_command.liftup = 0.0;
-					std::cout<<"\nlifting up finished 10 seconds";
+					std::cout<<"\nlifting up finished 80 seconds";
+        				laser_filters::PolygonFilterConfig cfg_trolley;
+					cfg_trolley.polygon = footprint_laser;
+	//cfg_robot.polygon = footprint_normal;
+					str_param.name = "footprint";
+	 				str_param.value = footprint_string;
+					str_clear.name = "clear_costmaps";
+					str_clear.value = "{}";
+					conf_clear.strs.push_back(str_clear);
+	 				conf.strs.push_back(str_param);
+	 				srv_req.config = conf;
+					srv_req2.config =conf_clear;
+					ros::service::waitForService("/move_base/global_costmap/set_parameters");
+					ros::service::waitForService("/move_base/local_costmap/set_parameters");
+	 				ros::service::call("/move_base/global_costmap/set_parameters", srv_req, srv_resp);
+					ros::service::call("/move_base/local_costmap/set_parameters", srv_req, srv_resp);
+					ros::service::call("/move_base", srv_req2, srv_resp);
+
+					client.setConfiguration(cfg_trolley);
 					success =true;
 					break;
 				}
@@ -235,7 +224,7 @@ void LogiAction::execteCB(const wasp_joy::LogisticsGoalConstPtr &goal)
 			}
 			else if(abs(this->odom_posex- odom_start_pose) <= dist)
 			{
-				command_velocity.linear.x = 0.015;
+				command_velocity.linear.x = 0.025;
 				logistics_command.liftup = 0;
 				odom_start_orientation=this->odom_orientationz;
 
@@ -246,46 +235,59 @@ void LogiAction::execteCB(const wasp_joy::LogisticsGoalConstPtr &goal)
      	if (goal->liftup==0 && goal->liftdown == 1)
      	{
      		ROS_INFO("trolley liftdown");
-     		if (odom_flag==0)
-     		{
-     			ROS_INFO("odom_start_pose= %f", odom_start_pose);
-     			odom_start_pose=this->odom_posex;
-
-     			odom_flag=1;
-     			
-
-     		}
-
- 			//ROS_INFO("Duration in seconds: %lf", begin.toSec());
- 			//ROS_INFO("trolley begine= %lf", odom_start_pose);
- 			//ROS_INFO("trolley now= %lf", this->odom_posex);
-			if (abs(this->odom_posex- odom_start_pose) > 0.5)
+     		if(timer_flag == 0 || odom_flag ==0)
 			{
-				command_velocity.linear.x = 0.0;
-				//boost::thread thrd(TimerCallback(true));
-				boost::thread thrd(TimerCallback, true);
-				thrd.join();
-				time_set = m_ReturnValue;
-				if (!time_set)
-				{
-					logistics_command.liftdown = 1;
-					success =false;
-				}
-				else if (time_set)
-				{
-					logistics_command.liftdown = 0;
-					success =true;
-				}
+				last_time = ros::Time::now();
+				ROS_INFO("odom_start_pose= %f", odom_start_pose);
+     			odom_start_pose=this->odom_posey;
+				timer_flag = 1;
+				odom_flag = 1;
+			}
+ROS_INFO("odom_start_pose= %lf", odom_start_pose);
+ 			ROS_INFO("current odom reading= %lf", this->odom_posex);
+			std::cout<<"\nlast_time:"<<last_time.toSec();
 
-			//logistics_command.liftup = 1;
+			if(abs(ros::Time::now().toSec()-last_time.toSec())<100)
+			{
+				logistics_command.liftdown = 1.0;
+				std::cout<<"\ntimerstarted for 100 seconds";
+			}
+			else if(!trolley_undock && (abs(ros::Time::now().toSec()-last_time.toSec())>=100))
+			{
+				logistics_command.liftdown = 0.0;
+				std::cout<<"\ntrolley lifting down finished 100 seconds";
+				trolley_undock =true;
+				
+			}
+			else if(trolley_undock && (abs(this->odom_posey- odom_start_pose) > dist))
+			{
+				std::cout<<"\ntrolley undocked";
+				command_velocity.linear.y = 0.0;
+				laser_filters::PolygonFilterConfig cfg_robot;
+				cfg_robot.polygon = footprint_normal;
+				client.setConfiguration(cfg_robot);
+					str_param.name = "footprint";
+	 				str_param.value = footprint_normal;
+					str_clear.name = "clear_costmaps";
+					str_clear.value = "{}";
+					conf_clear.strs.push_back(str_clear);
+	 				conf.strs.push_back(str_param);
+	 				srv_req.config = conf;
+					srv_req2.config =conf_clear;
+					ros::service::waitForService("/move_base/global_costmap/set_parameters");
+					ros::service::waitForService("/move_base/local_costmap/set_parameters");
+	 				ros::service::call("/move_base/global_costmap/set_parameters", srv_req, srv_resp);
+					ros::service::call("/move_base/local_costmap/set_parameters", srv_req, srv_resp);
+				success =true;
 				break;
 			}
-			else if(abs(this->odom_posex- odom_start_pose) <= 0.5)
+			else if(trolley_undock &&(abs(this->odom_posey- odom_start_pose) <= dist))
 			{
-				command_velocity.linear.x = 0.15;
-				logistics_command.liftup = 0;
-
+				std::cout<<"\nrobot_coming out of trolley";
+				command_velocity.linear.y = 0.015;
+				logistics_command.liftdown = 0;
 			}
+
      	}
      	else if (goal->liftup ==0 && goal->liftdown==0)
      	{
@@ -313,6 +315,7 @@ void LogiAction::execteCB(const wasp_joy::LogisticsGoalConstPtr &goal)
 			m_ReturnValue = false;
 			odom_flag = 0;
 			timer_flag = 0;
+			linear_dist =false;
 
 		}
 
@@ -320,6 +323,7 @@ void LogiAction::execteCB(const wasp_joy::LogisticsGoalConstPtr &goal)
 void LogiAction::OdomCallback(const nav_msgs::Odometry::ConstPtr& msg)
 {
 	this->odom_posex=msg->pose.pose.position.x;
+	this->odom_posey=msg->pose.pose.position.y;
 	
 	tf::Quaternion q(
         msg->pose.pose.orientation.x,
@@ -363,6 +367,7 @@ void LogiAction::ScanCallback(const sensor_msgs::LaserScan::ConstPtr& laser)
 //angle_left= acos(left_min/fleft_min)*(180/pi);
 
 }
+
 	int main(int argc, char** argv)
 	{
 	 ros::init(argc, argv, "logi_action");
